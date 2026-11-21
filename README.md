@@ -4,13 +4,14 @@
 
 Store Coach is designed to help retail teams understand why performance is changing and what they can do next. It focuses on three business outcomes: more bills from store footfall, bigger baskets through relevant cross-selling, and more repeat purchases from customers who return at least 30 days after their first bill.
 
-The current app is the branded foundation and executive overview shell. It intentionally shows no operational results until the actual hackathon workbook or CSV data is connected and validated. The participant brief describes the data but is not the dataset; its example values are synthetic.
+The app now includes the branded executive overview, working navigation across the planned modules, and a PostgreSQL/Prisma data model for the entities described in the participant brief. It intentionally shows no operational results until the actual hackathon workbook or CSV data is connected and validated. The brief describes the data but is not the dataset; its example values are synthetic.
 
 ## Features
 
 - Branded Store Coach workspace and responsive application layout
+- Working navigation across executive, area manager, store, salesperson, recommendation, stock, retention, weekly review, and data quality views
 - Executive overview organized around the three retail performance levers
-- Dedicated navigation for store, salesperson, stock, retention, recommendation, and data quality modules
+- Prisma/PostgreSQL schema for source entities, peer analysis dimensions, and source-row-preserving configuration records
 - Explicit empty states while source data is not connected
 - Privacy-safe environment variable template and ignore rules
 
@@ -21,7 +22,7 @@ The current app is the branded foundation and executive overview shell. It inten
 | Frontend | Next.js App Router, React, TypeScript |
 | Styling | Tailwind CSS 4 with project design tokens |
 | Business logic (planned) | TypeScript and validated SQL calculations |
-| Database and ORM (planned) | PostgreSQL and Prisma |
+| Database and ORM | PostgreSQL and Prisma ORM 7 |
 | AI explanations (planned) | Google Gemini API, for explanations and coaching language |
 | Validation (planned) | Zod |
 | Hosting (planned) | Vercel with Neon or Supabase PostgreSQL |
@@ -58,6 +59,21 @@ GEMINI_API_KEY
 ```
 
 Copy `.env.example` to `.env.local` when those integrations are implemented, then replace the placeholders with your own values. Keep `.env.local` private; real credentials must never be committed or exposed in client-side code.
+
+Prisma commands read `DATABASE_URL` from `.env.local`. Once a development PostgreSQL database is available, generate and validate the Prisma client and schema:
+
+```bash
+npm run db:generate
+npm run db:validate
+```
+
+Apply schema migrations only after a development database URL is configured:
+
+```bash
+npm run db:migrate
+```
+
+The configuration sheets whose column definitions are incomplete in the participant brief (`rules`, `min_display`, and `lead_times`) are preserved as JSON rows until the actual workbook confirms their exact fields. No migration has been applied because no database credentials or source workbook have been provided.
 
 ## Deployment
 

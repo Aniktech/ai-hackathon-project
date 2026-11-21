@@ -19,8 +19,9 @@ out/
 dist/
 build/
 coverage/
-.turbo/
 .vercel/
+app/generated/prisma/
+.turbo/
 *.tsbuildinfo
 
 # Common compiled and generated files
