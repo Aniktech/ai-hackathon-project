@@ -10,17 +10,15 @@ export function getPrismaClient(): PrismaClient {
     return prismaGlobal.storeCoachPrisma;
   }
 
-  const connectionString = process.env.DATABASE_URL;
+  // Use Neon’s pooled endpoint for Vercel function traffic when configured;
+  // DATABASE_URL remains the direct endpoint for Prisma CLI migrations/imports.
+  const connectionString = process.env.DATABASE_URL_POOLED ?? process.env.DATABASE_URL;
   if (!connectionString) {
-    throw new Error("DATABASE_URL is required before database queries can run.");
+    throw new Error("DATABASE_URL or DATABASE_URL_POOLED is required before database queries can run.");
   }
 
-  const adapter = new PrismaPg({ connectionString });
+  const adapter = new PrismaPg({ connectionString, max: 3, idleTimeoutMillis: 10_000 });
   const client = new PrismaClient({ adapter });
-
-  if (process.env.NODE_ENV !== "production") {
-    prismaGlobal.storeCoachPrisma = client;
-  }
-
+  prismaGlobal.storeCoachPrisma = client;
   return client;
 }

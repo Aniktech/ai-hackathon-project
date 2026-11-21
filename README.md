@@ -58,13 +58,14 @@ Set these values in `.env.local` for local development. Never put real credentia
 
 ```text
 DATABASE_URL
+DATABASE_URL_POOLED (recommended for Vercel runtime)
 GEMINI_API_KEY
 GEMINI_MODEL
 DATA_IMPORT_TOKEN
 CRON_SECRET
 ```
 
-Copy `.env.example` to `.env.local` if needed, then set `DATABASE_URL`, a Gemini key from Google AI Studio, and long random values for `DATA_IMPORT_TOKEN` and `CRON_SECRET`. Gemini is optional and must only explain findings already calculated by application logic. The import token protects the workbook write route; the cron secret protects scheduled analysis. Keep all of these values server-side.
+Copy `.env.example` to `.env.local` if needed. Set `DATABASE_URL` to the direct PostgreSQL URL; Prisma migrations and the local dataset importer use it. For Vercel, also set `DATABASE_URL_POOLED` to the Neon pooled URL (the hostname includes `-pooler`) for app traffic. The runtime prefers the pooled URL and falls back to `DATABASE_URL`. Add a Gemini key from Google AI Studio only if you want AI explanations; Gemini is optional and must only explain findings already calculated by application logic. The import token protects the workbook write route; the cron secret protects scheduled analysis. Keep all of these values server-side.
 
 ### Load the dataset once
 
@@ -97,8 +98,8 @@ The planned hosting target is Vercel:
 
 1. Import this GitHub repository into Vercel.
 2. Keep the Next.js framework preset and default build settings.
-3. Add server-side environment variables in the Vercel project settings (`DATABASE_URL`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `DATA_IMPORT_TOKEN`, and `CRON_SECRET`).
-4. Import and validate the actual workbook through Data Quality & Monitoring.
-5. Deploy and confirm the production overview loads.
+3. Add `DATABASE_URL` (direct URL) and `DATABASE_URL_POOLED` (Neon pooled URL) for Production. Add `DATA_IMPORT_TOKEN` and `CRON_SECRET`; add `GEMINI_API_KEY` only if enabling AI explanations. Configure variables in Preview too if you expect preview deployments to show data.
+4. Use the same Neon database branch that already contains the migrated and imported dataset. If using an empty database instead, set `DATABASE_URL` locally and run `npm run db:migrate` followed by `npm run db:import -- data/source` before deploying.
+5. Redeploy after adding or changing environment variables, then confirm the overview reports verified data. If it reports a database connection issue, check that `DATABASE_URL_POOLED` is the Neon pooled connection string and that it points to the populated branch.
 
-The interface can start without a Gemini key, but data views require a migrated database and the actual source workbook. The included `vercel.json` schedules analysis for 08:00 India Standard Time. Set `CRON_SECRET` in Vercel so the scheduled route is authorized. Confirm the platform's request-size and execution-time limits for the actual workbook before production import.
+The interface can start without a Gemini key, but data views require a migrated database and imported source rows. The included `vercel.json` schedules analysis for 08:00 India Standard Time. Set `CRON_SECRET` in Vercel so the scheduled route is authorized. Large dataset imports should use the local streaming CLI against the target database rather than a Vercel function upload.

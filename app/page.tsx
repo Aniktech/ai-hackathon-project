@@ -95,7 +95,7 @@ export default async function Home() {
         <div>
           <p className="section-kicker">BUILT AROUND YOUR DATA</p>
           <h2>Start with a trustworthy picture.</h2>
-          <p>{hasData ? "Metrics are calculated from the imported source dataset. Example values in the brief are synthetic and are not used as findings." : !databaseReachable ? "The dataset has been loaded, but this preview runtime cannot reach the configured database. The deployed server needs database network access to display the live metrics." : "Connect the actual workbook or CSV dataset to calculate store and salesperson performance. Example values in the brief are synthetic and are not used as findings."}</p>
+          <p>{hasData ? "Metrics are calculated from the imported source dataset. Example values in the brief are synthetic and are not used as findings." : !databaseReachable ? "This app could not connect to the configured database. Check the deployment database settings and confirm they point to the database containing the imported rows." : "The database is reachable but has no source bills. Import the supplied CSV dataset to calculate store and salesperson performance."}</p>
         </div>
         <span className="readiness-tag">{hasData ? "DATA VERIFIED" : !databaseReachable ? "DATABASE UNAVAILABLE" : "DATA REQUIRED"}</span>
       </section>

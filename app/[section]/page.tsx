@@ -26,6 +26,9 @@ export default async function ModulePage({
 
   const overview = section === "data-quality" ? await getOverview().catch(() => null) : null;
   const operating = section !== "data-quality" ? await getOverview().catch(() => null) : null;
+  const currentOverview = section === "data-quality" ? overview : operating;
+  const databaseReachable = currentOverview !== null;
+  const hasData = Boolean(currentOverview?.available);
   const people = section === "salespeople" ? await getSalespeople().catch(() => []) : [];
   const stock = section === "stock" ? await getStockInsights().catch(() => []) : [];
   const recommendationHistory = ["weekly-review", "recommendations"].includes(section) ? await getRecommendationHistory().catch(() => []) : [];
@@ -61,12 +64,12 @@ export default async function ModulePage({
           <h1>{pageModule.label}</h1>
           <p className="page-subtitle">{pageModule.description}</p>
         </div>
-        <div className="data-state"><span className="state-dot" /><span><strong>Awaiting source workbook</strong><small>No metrics are shown until source data is validated</small></span></div>
+        <div className="data-state"><span className="state-dot" /><span><strong>{!databaseReachable ? "Database connection unavailable" : hasData ? `Data through ${currentOverview?.latestDate}` : "Dataset not imported"}</strong><small>{hasData ? "Validated source rows are available" : !databaseReachable ? "Check the deployment database connection" : "Import the validated source dataset to show metrics"}</small></span></div>
       </div>
 
       {section === "data-quality" ? <section className="panel data-quality-panel">
         <div className="panel-heading"><div><p className="section-kicker">DATASET STATUS</p><h2>{overview === null ? "Database connection unavailable" : overview.available ? `Imported through ${overview.latestDate}` : "No source workbook imported"}</h2></div><span className="readiness-tag">{overview === null ? "DATABASE OFFLINE" : overview.available ? "DATA LOADED" : "AWAITING DATA"}</span></div>
-        <p className="import-copy">{overview?.available ? "Source data is ready. Judges can open the dashboard directly; no upload is needed." : overview === null ? "The configured dataset is loaded, but this preview runtime cannot reach the database. The deployed server needs database network access." : "An administrator can validate and import the source dataset before sharing the app."}</p>
+        <p className="import-copy">{overview?.available ? "Source data is ready. Judges can open the dashboard directly; no upload is needed." : overview === null ? "This app could not connect to the database. Check DATABASE_URL_POOLED in the deployment settings and confirm it points to the database containing the imported rows." : "The database is reachable but contains no bill data. An administrator must import the validated dataset before sharing the app."}</p>
         <details className="admin-import"><summary>Administrator dataset tools</summary><ImportPanel /></details>
       </section> : section === "area-managers" && operating?.available ? <section className="panel module-data"><div className="panel-heading"><div><p className="section-kicker">MAXIMUM FIVE PER MANAGER</p><h2>Store priorities ranked by estimated conversion opportunity</h2></div></div>{managerPriorities.size ? [...managerPriorities.entries()].map(([manager, entries]) => <div className="data-group" key={manager}><h3>{manager}</h3>{entries.map((store) => <div className="priority-row" key={store.storeId}><span><strong>{store.storeId} · {store.city}</strong><small>Conversion {formatPct(store.conversion)} vs peer {formatPct(store.peerConversion)} · verify roster and market context</small></span><b>{formatMoney(store.conversionOpportunity)}</b></div>)}</div>) : <p className="empty-note">No store is below its city and tier peer conversion in the latest 28 days.</p>}</section>
       : section === "stores" && operating?.available ? <section className="panel module-data"><div className="panel-heading"><div><p className="section-kicker">LATEST 28 DAYS · CITY AND TIER PEERS</p><h2>Store performance</h2></div><span className="source-note">Through {operating.latestDate}</span></div><div className="table-scroll"><table><thead><tr><th>Store</th><th>City / tier</th><th>Bills</th><th>Conversion</th><th>Peer</th><th>Items / bill</th><th>Revenue opportunity</th></tr></thead><tbody>{operating.stores.map((store) => <tr key={store.storeId}><td>{store.storeId}</td><td>{store.city} · {store.tier}</td><td>{store.bills.toLocaleString("en-IN")}</td><td>{formatPct(store.conversion)}</td><td>{formatPct(store.peerConversion)}</td><td>{store.itemsPerBill?.toFixed(2) ?? "—"}</td><td>{formatMoney(store.conversionOpportunity)}</td></tr>)}</tbody></table></div></section>
@@ -86,11 +89,11 @@ export default async function ModulePage({
       <section className="data-readiness module-readiness">
         <div className="readiness-icon"><Icon name="shield" size={19} /></div>
         <div>
-          <p className="section-kicker">SOURCE WORKBOOK NOT CONNECTED</p>
-          <h2>Keep decisions tied to the real source data.</h2>
-          <p>The participant brief explains the workbook structure, but it is not the workbook itself. This page will populate after the source file is available and its columns are validated.</p>
+          <p className="section-kicker">{hasData ? "VALIDATED SOURCE DATA" : !databaseReachable ? "DATABASE CONNECTION" : "SOURCE DATA REQUIRED"}</p>
+          <h2>{hasData ? "Keep decisions tied to the real source data." : !databaseReachable ? "Connect the deployed database." : "Import the validated source data."}</h2>
+          <p>{hasData ? "Metrics on this page are calculated from the imported dataset. The participant brief’s examples are not used as findings." : !databaseReachable ? "Set DATABASE_URL_POOLED for Vercel function traffic and confirm it points to the Neon branch containing the imported dataset." : "The database is online, but no bill data is present yet. Import the supplied CSV bundle before expecting dashboard metrics."}</p>
         </div>
-        <span className="readiness-tag">NO FINDINGS YET</span>
+        <span className="readiness-tag">{hasData ? "DATA VERIFIED" : !databaseReachable ? "DATABASE OFFLINE" : "DATA REQUIRED"}</span>
       </section>
     </div>
   );
