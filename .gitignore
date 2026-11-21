@@ -21,6 +21,7 @@ build/
 coverage/
 .turbo/
 .vercel/
+*.tsbuildinfo
 
 # Common compiled and generated files
 *.class
