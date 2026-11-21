@@ -1,0 +1,45 @@
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# Node.js dependencies and outputs
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+.next/
+out/
+dist/
+build/
+coverage/
+.turbo/
+.vercel/
+
+# Common compiled and generated files
+*.class
+*.py[cod]
+__pycache__/
+target/
+vendor/
+
+# IDEs and operating systems
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs and local databases
+*.log
+*.sqlite
+*.sqlite3
