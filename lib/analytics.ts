@@ -36,6 +36,119 @@ export type SalespersonMetric = {
 
 export type MonthlyMetric = { month: string; revenue: number; bills: number; footfall: number; conversion: number | null };
 
+export type StoreTrendInsight = {
+  storeId: string;
+  city: string;
+  tier: string;
+  currentBills: number;
+  previousBills: number;
+  currentFootfall: number;
+  previousFootfall: number;
+  currentConversion: number | null;
+  previousConversion: number | null;
+  peerCurrentConversion: number | null;
+  peerPreviousConversion: number | null;
+  classification: string;
+};
+
+export async function getStoreTrendInsights(): Promise<StoreTrendInsight[]> {
+  const prisma = getPrismaClient();
+  const rows = await prisma.$queryRaw<Array<Omit<StoreTrendInsight, "classification">>>`
+    WITH bounds AS (SELECT MAX(bill_date)::date AS latest_date FROM bills),
+    periods AS (
+      SELECT latest_date-27 AS current_start, latest_date AS current_end,
+        latest_date-55 AS previous_start, latest_date-28 AS previous_end FROM bounds
+    ), b AS (
+      SELECT store_id,
+        COUNT(*) FILTER (WHERE bill_date BETWEEN p.current_start AND p.current_end)::int AS current_bills,
+        COUNT(*) FILTER (WHERE bill_date BETWEEN p.previous_start AND p.previous_end)::int AS previous_bills
+      FROM bills CROSS JOIN periods p GROUP BY store_id
+    ), f AS (
+      SELECT store_id,
+        SUM(footfall) FILTER (WHERE date BETWEEN p.current_start AND p.current_end)::float8 AS current_footfall,
+        SUM(footfall) FILTER (WHERE date BETWEEN p.previous_start AND p.previous_end)::float8 AS previous_footfall
+      FROM footfall_daily CROSS JOIN periods p GROUP BY store_id
+    ), base AS (
+      SELECT st.store_id AS "storeId", st.city, st.tier,
+        COALESCE(b.current_bills,0)::int AS "currentBills", COALESCE(b.previous_bills,0)::int AS "previousBills",
+        COALESCE(f.current_footfall,0)::float8 AS "currentFootfall", COALESCE(f.previous_footfall,0)::float8 AS "previousFootfall",
+        CASE WHEN COALESCE(f.current_footfall,0)>0 THEN b.current_bills::float8/f.current_footfall ELSE NULL END AS "currentConversion",
+        CASE WHEN COALESCE(f.previous_footfall,0)>0 THEN b.previous_bills::float8/f.previous_footfall ELSE NULL END AS "previousConversion"
+      FROM stores st LEFT JOIN b ON b.store_id=st.store_id LEFT JOIN f ON f.store_id=st.store_id
+    ), peers AS (
+      SELECT city,tier,AVG("currentConversion") AS current_conversion,AVG("previousConversion") AS previous_conversion
+      FROM base GROUP BY city,tier
+    )
+    SELECT base.*, peers.current_conversion::float8 AS "peerCurrentConversion",
+      peers.previous_conversion::float8 AS "peerPreviousConversion"
+    FROM base LEFT JOIN peers USING(city,tier)
+  `;
+  return rows.map((row) => {
+    const billsChange = row.previousBills > 0 ? (row.currentBills - row.previousBills) / row.previousBills : null;
+    const footfallChange = row.previousFootfall > 0 ? (row.currentFootfall - row.previousFootfall) / row.previousFootfall : null;
+    const peerChange = row.peerPreviousConversion && row.peerCurrentConversion !== null
+      ? (row.peerCurrentConversion - row.peerPreviousConversion) / row.peerPreviousConversion
+      : null;
+    const conversionChange = row.previousConversion && row.currentConversion !== null
+      ? (row.currentConversion - row.previousConversion) / row.previousConversion
+      : null;
+    const classification = peerChange !== null && peerChange <= -0.1
+      ? "Market-wide slowdown across city and tier peers"
+      : billsChange !== null && billsChange <= -0.1 && footfallChange !== null && Math.abs(footfallChange) <= 0.05
+        ? "Bills down while footfall is stable"
+        : conversionChange !== null && conversionChange <= -0.1 && (peerChange === null || peerChange > -0.1)
+          ? "Store-specific conversion decline"
+          : "No material 28-day decline detected";
+    return { ...row, classification };
+  });
+}
+
+export type StaffingInsight = {
+  storeId: string;
+  city: string;
+  peakDayAvgFootfall: number;
+  peakDayAvgPresentStaff: number;
+  peakVisitorLoadPerStaff: number | null;
+  typicalVisitorLoadPerStaff: number | null;
+  peakDaysWithoutPresentStaff: number;
+};
+
+export async function getStaffingInsights(): Promise<StaffingInsight[]> {
+  const prisma = getPrismaClient();
+  return prisma.$queryRaw<StaffingInsight[]>`
+    WITH bounds AS (SELECT MAX(bill_date)::date AS latest_date FROM bills),
+    daily AS (
+      SELECT f.store_id, f.date, f.footfall::float8 AS footfall,
+        COUNT(r.salesperson_id) FILTER (WHERE r.status='Present')::int AS present_staff
+      FROM footfall_daily f
+      LEFT JOIN roster_daily r ON r.store_id=f.store_id AND r.date=f.date
+      CROSS JOIN bounds b
+      WHERE f.date BETWEEN b.latest_date-27 AND b.latest_date
+      GROUP BY f.store_id, f.date, f.footfall
+    ), ranked AS (
+      SELECT daily.*, CUME_DIST() OVER (PARTITION BY store_id ORDER BY footfall) AS traffic_rank
+      FROM daily
+    ), summary AS (
+      SELECT store_id,
+        AVG(footfall) FILTER (WHERE traffic_rank>=0.75)::float8 AS peak_footfall,
+        AVG(present_staff) FILTER (WHERE traffic_rank>=0.75)::float8 AS peak_staff,
+        AVG(footfall/NULLIF(present_staff,0)) FILTER (WHERE traffic_rank>=0.75)::float8 AS peak_load,
+        AVG(footfall/NULLIF(present_staff,0)) FILTER (WHERE traffic_rank<0.75)::float8 AS typical_load,
+        COUNT(*) FILTER (WHERE traffic_rank>=0.75 AND present_staff=0)::int AS peak_unstaffed
+      FROM ranked GROUP BY store_id
+    )
+    SELECT s.store_id AS "storeId", st.city,
+      COALESCE(s.peak_footfall,0)::float8 AS "peakDayAvgFootfall",
+      COALESCE(s.peak_staff,0)::float8 AS "peakDayAvgPresentStaff",
+      s.peak_load::float8 AS "peakVisitorLoadPerStaff",
+      s.typical_load::float8 AS "typicalVisitorLoadPerStaff",
+      COALESCE(s.peak_unstaffed,0)::int AS "peakDaysWithoutPresentStaff"
+    FROM summary s JOIN stores st ON st.store_id=s.store_id
+    WHERE s.peak_footfall IS NOT NULL
+    ORDER BY s.peak_unstaffed DESC, s.peak_load DESC NULLS LAST
+  `;
+}
+
 export async function getOverview() {
   const prisma = getPrismaClient();
   const latest = await prisma.bill.aggregate({ _max: { billDate: true } });
@@ -65,10 +178,11 @@ export async function getOverview() {
       FROM stores st JOIN area_managers am ON am.area_manager_id=st.area_manager_id
       LEFT JOIN b ON b.store_id=st.store_id LEFT JOIN s ON s.store_id=st.store_id LEFT JOIN f ON f.store_id=st.store_id
     ), peers AS (
-      SELECT city,tier,AVG(conversion) AS peer_conversion FROM base WHERE conversion IS NOT NULL GROUP BY city,tier
+      SELECT city,tier,SUM(conversion) AS conversion_sum,COUNT(*)::int AS peer_count FROM base WHERE conversion IS NOT NULL GROUP BY city,tier
     )
-    SELECT base.*, peers.peer_conversion::float8 AS "peerConversion",
-      GREATEST(0,COALESCE(peers.peer_conversion-base.conversion,0)*base.footfall*COALESCE(base."averageBill",0))::float8 AS "conversionOpportunity"
+    SELECT base.*,
+      CASE WHEN peers.peer_count>1 THEN ((peers.conversion_sum-base.conversion)/(peers.peer_count-1))::float8 ELSE NULL END AS "peerConversion",
+      GREATEST(0,COALESCE((peers.conversion_sum-base.conversion)/NULLIF(peers.peer_count-1,0),0)-COALESCE(base.conversion,0))*base.footfall*COALESCE(base."averageBill",0)::float8 AS "conversionOpportunity"
     FROM base LEFT JOIN peers USING (city,tier) ORDER BY "conversionOpportunity" DESC
   `;
 
@@ -127,12 +241,13 @@ export async function getSalespeople() {
       WHERE EXISTS (SELECT 1 FROM roster_daily rd WHERE rd.salesperson_id=sp.salesperson_id AND rd.store_id=sp.store_id AND rd.status='Present' AND rd.date BETWEEN x.end_date-27 AND x.end_date)
       GROUP BY sp.salesperson_id, sp.name, sp.store_id, st.city, st.state
     ), peers AS (
-      SELECT a.*, AVG(bills) OVER (PARTITION BY "storeId")::float8 AS "peerBills",
-        AVG("itemsPerBill") OVER (PARTITION BY "storeId")::float8 AS "peerItemsPerBill",
-        AVG(bills) OVER (PARTITION BY city)::float8 AS "cityPeerBills",
-        AVG("itemsPerBill") OVER (PARTITION BY city)::float8 AS "cityPeerItemsPerBill",
-        AVG(bills) OVER (PARTITION BY state)::float8 AS "statePeerBills",
-        AVG("itemsPerBill") OVER (PARTITION BY state)::float8 AS "statePeerItemsPerBill"
+      SELECT a.*,
+        (SELECT AVG(q.bills)::float8 FROM sales q WHERE q."storeId"=a."storeId" AND q."salespersonId"<>a."salespersonId") AS "peerBills",
+        (SELECT AVG(q."itemsPerBill")::float8 FROM sales q WHERE q."storeId"=a."storeId" AND q."salespersonId"<>a."salespersonId") AS "peerItemsPerBill",
+        (SELECT AVG(q.bills)::float8 FROM sales q WHERE q.city=a.city AND q."salespersonId"<>a."salespersonId") AS "cityPeerBills",
+        (SELECT AVG(q."itemsPerBill")::float8 FROM sales q WHERE q.city=a.city AND q."salespersonId"<>a."salespersonId") AS "cityPeerItemsPerBill",
+        (SELECT AVG(q.bills)::float8 FROM sales q WHERE q.state=a.state AND q."salespersonId"<>a."salespersonId") AS "statePeerBills",
+        (SELECT AVG(q."itemsPerBill")::float8 FROM sales q WHERE q.state=a.state AND q."salespersonId"<>a."salespersonId") AS "statePeerItemsPerBill"
       FROM sales a
     )
     SELECT p."salespersonId", p.salesperson, p."storeId", p.city, p.state, p.bills, p."itemsPerBill", p."peerBills", p."peerItemsPerBill", p."cityPeerBills", p."cityPeerItemsPerBill", p."statePeerBills", p."statePeerItemsPerBill",
@@ -144,14 +259,91 @@ export async function getSalespeople() {
 
 export async function getStockInsights() {
   const prisma = getPrismaClient();
-  return prisma.$queryRaw<Array<{ storeId: string; city: string; skuId: string; styleName: string; category: string; onHand: number; inTransit: number; asOfDate: Date; oldestDate: Date | null; daysInStock: number | null }>>`
+  return prisma.$queryRaw<Array<{ storeId: string; city: string; skuId: string; styleName: string; category: string; onHand: number; inTransit: number; asOfDate: Date; oldestDate: Date | null; daysInStock: number | null; soldUnits: number; soldRevenue: number; daysCover: number | null; availabilitySignal: string }>>`
     WITH latest AS (SELECT MAX(as_of_date)::date AS d FROM stock_snapshot),
+    sales_bounds AS (SELECT MAX(bill_date)::date AS d FROM bills),
+    sold AS (
+      SELECT b.store_id, bl.sku_id, SUM(bl.qty)::int AS units,
+        SUM(bl.qty*bl.selling_price)::float8 AS revenue
+      FROM bills b JOIN bill_lines bl ON bl.bill_id=b.bill_id JOIN items i ON i.sku_id=bl.sku_id
+      CROSS JOIN sales_bounds x
+      WHERE b.bill_date BETWEEN x.d-27 AND x.d AND i.is_packaging=false
+      GROUP BY b.store_id, bl.sku_id
+    ),
     weekly AS (SELECT store_id, sku_id, AVG(days_in_stock)::float8 AS days FROM stock_weekly GROUP BY store_id,sku_id)
     SELECT s.location_id AS "storeId", st.city, i.sku_id AS "skuId", i.style_name AS "styleName", i.category,
-      s.on_hand AS "onHand", s.in_transit AS "inTransit", s.as_of_date AS "asOfDate", s.oldest_stock_received_on AS "oldestDate", w.days AS "daysInStock"
+      s.on_hand AS "onHand", s.in_transit AS "inTransit", s.as_of_date AS "asOfDate", s.oldest_stock_received_on AS "oldestDate", w.days AS "daysInStock",
+      COALESCE(sold.units,0)::int AS "soldUnits", COALESCE(sold.revenue,0)::float8 AS "soldRevenue",
+      CASE WHEN COALESCE(sold.units,0)>0 THEN s.on_hand*28.0/sold.units ELSE NULL END::float8 AS "daysCover",
+      CASE WHEN COALESCE(sold.units,0)>0 AND s.on_hand=0 AND s.in_transit=0 THEN 'Recent sales with no on-hand or incoming units'
+        WHEN COALESCE(sold.units,0)>0 AND s.on_hand*28.0/sold.units<7 THEN 'Under seven days of recent sales cover'
+        ELSE 'No immediate sales-cover signal' END AS "availabilitySignal"
     FROM stock_snapshot s JOIN latest l ON s.as_of_date=l.d JOIN stores st ON st.store_id=s.location_id
     JOIN items i ON i.sku_id=s.sku_id LEFT JOIN weekly w ON w.store_id=s.location_id AND w.sku_id=s.sku_id
-    ORDER BY w.days ASC NULLS LAST, s.on_hand DESC LIMIT 250
+    LEFT JOIN sold ON sold.store_id=s.location_id AND sold.sku_id=s.sku_id
+    ORDER BY CASE WHEN COALESCE(sold.units,0)>0 AND s.on_hand=0 AND s.in_transit=0 THEN 0
+      WHEN COALESCE(sold.units,0)>0 AND s.on_hand*28.0/sold.units<7 THEN 1 ELSE 2 END, w.days ASC NULLS LAST, s.on_hand DESC LIMIT 250
+  `;
+}
+
+export type PairingInsight = {
+  storeId: string;
+  city: string;
+  tier: string;
+  anchorCategory: string;
+  complementCategory: string;
+  anchorBills: number;
+  attachedBills: number;
+  attachRate: number;
+  peerAttachRate: number | null;
+  opportunity: number;
+};
+
+export async function getCategoryPairingInsights(): Promise<PairingInsight[]> {
+  const prisma = getPrismaClient();
+  return prisma.$queryRaw<PairingInsight[]>`
+    WITH bounds AS (SELECT MAX(bill_date)::date AS latest_date FROM bills),
+    category_bills AS (
+      SELECT b.store_id, b.bill_id, i.category, SUM(bl.qty * bl.selling_price)::float8 AS revenue
+      FROM bills b
+      JOIN bill_lines bl ON bl.bill_id=b.bill_id
+      JOIN items i ON i.sku_id=bl.sku_id
+      CROSS JOIN bounds x
+      WHERE b.bill_date BETWEEN x.latest_date-27 AND x.latest_date AND i.is_packaging=false
+      GROUP BY b.store_id, b.bill_id, i.category
+    ), pair_definitions AS (
+      SELECT * FROM (VALUES
+        ('Sherwani','Mojari'), ('Sherwani','Safa'), ('Sherwani','Mala'), ('Sherwani','Stole'),
+        ('Kurta Set','Mojari'), ('Kurta Set','Stole'), ('Indo-Western','Mojari'), ('Indo-Western','Safa')
+      ) AS pair(anchor_category, complement_category)
+    ), pair_metrics AS (
+      SELECT st.store_id AS "storeId", st.city, st.tier, d.anchor_category AS "anchorCategory",
+        d.complement_category AS "complementCategory",
+        COUNT(DISTINCT a.bill_id)::int AS "anchorBills",
+        COUNT(DISTINCT c.bill_id)::int AS "attachedBills",
+        CASE WHEN COUNT(DISTINCT c.bill_id)>0 THEN AVG(c.revenue)::float8 ELSE 0::float8 END AS "averageComplementRevenue"
+      FROM stores st CROSS JOIN pair_definitions d
+      LEFT JOIN category_bills a ON a.store_id=st.store_id AND a.category=d.anchor_category
+      LEFT JOIN category_bills c ON c.store_id=a.store_id AND c.bill_id=a.bill_id AND c.category=d.complement_category
+      GROUP BY st.store_id, st.city, st.tier, d.anchor_category, d.complement_category
+    ), rates AS (
+      SELECT *, CASE WHEN "anchorBills">0 THEN "attachedBills"::float8/"anchorBills" ELSE NULL END AS attach_rate
+      FROM pair_metrics
+    )
+    SELECT r."storeId", r.city, r.tier, r."anchorCategory", r."complementCategory", r."anchorBills", r."attachedBills",
+      r.attach_rate::float8 AS "attachRate",
+      peers.peer_attach_rate::float8 AS "peerAttachRate",
+      GREATEST(0,COALESCE(peers.peer_attach_rate-r.attach_rate,0)*r."anchorBills"*r."averageComplementRevenue")::float8 AS opportunity
+    FROM rates r
+    LEFT JOIN LATERAL (
+      SELECT AVG(other.attach_rate) AS peer_attach_rate
+      FROM rates other
+      WHERE other."storeId"<>r."storeId" AND other.city=r.city AND other.tier=r.tier
+        AND other."anchorCategory"=r."anchorCategory" AND other."complementCategory"=r."complementCategory"
+    ) peers ON TRUE
+    WHERE r."anchorBills">=5 AND peers.peer_attach_rate IS NOT NULL AND peers.peer_attach_rate>r.attach_rate
+    ORDER BY opportunity DESC
+    LIMIT 100
   `;
 }
 
@@ -175,5 +367,45 @@ export async function getMonthlyTrend(): Promise<MonthlyMetric[]> {
       COALESCE(b.bills,0)::int AS bills, COALESCE(f.footfall,0)::float8 AS footfall,
       CASE WHEN COALESCE(f.footfall,0)>0 THEN b.bills::float8/f.footfall ELSE NULL END AS conversion
     FROM months m LEFT JOIN b USING(month) LEFT JOIN f USING(month) ORDER BY m.month
+  `;
+}
+
+export type RetentionCohortInsight = {
+  storeId: string;
+  city: string;
+  state: string;
+  weddingSeasonCustomers: number;
+  lapsedCustomers: number;
+  lapsedRate: number | null;
+};
+
+export async function getLapsedWeddingCohorts(): Promise<RetentionCohortInsight[]> {
+  const prisma = getPrismaClient();
+  return prisma.$queryRaw<RetentionCohortInsight[]>`
+    WITH bounds AS (SELECT MAX(bill_date)::date AS latest_date FROM bills),
+    wedding_buyers AS (
+      SELECT DISTINCT ON (b.customer_id) b.customer_id, b.store_id, st.city, st.state
+      FROM bills b
+      JOIN stores st ON st.store_id=b.store_id
+      JOIN calendar c ON c.date=b.bill_date AND c.state=st.state AND c.is_wedding_date=true
+      CROSS JOIN bounds x
+      WHERE b.bill_date BETWEEN x.latest_date-365 AND x.latest_date-30
+      ORDER BY b.customer_id, b.bill_date DESC, b.store_id
+    ), last_seen AS (
+      SELECT customer_id, MAX(bill_date)::date AS last_bill_date FROM bills GROUP BY customer_id
+    ), cohorts AS (
+      SELECT w.store_id, w.city, w.state, w.customer_id,
+        CASE WHEN l.last_bill_date<=x.latest_date-30 THEN true ELSE false END AS is_lapsed
+      FROM wedding_buyers w
+      JOIN last_seen l ON l.customer_id=w.customer_id
+      CROSS JOIN bounds x
+    )
+    SELECT store_id AS "storeId", city, state,
+      COUNT(*)::int AS "weddingSeasonCustomers",
+      COUNT(*) FILTER (WHERE is_lapsed)::int AS "lapsedCustomers",
+      CASE WHEN COUNT(*)>0 THEN (COUNT(*) FILTER (WHERE is_lapsed))::float8/COUNT(*) ELSE NULL END AS "lapsedRate"
+    FROM cohorts
+    GROUP BY store_id, city, state
+    ORDER BY "lapsedCustomers" DESC, store_id
   `;
 }

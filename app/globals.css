@@ -182,6 +182,11 @@ h1 em, .intro-copy h2 em { color: var(--orange); font-weight: 400; }
 .table-scroll th { padding: 9px 8px; background: #faf6ef; color: #81786d; font-size: 8px; font-weight: 700; letter-spacing: .5px; white-space: nowrap; }
 .table-scroll td { max-width: 320px; padding: 9px 8px; border-bottom: 1px solid #f0ebe4; color: #554f47; vertical-align: top; }
 .table-scroll td:last-child { min-width: 250px; line-height: 1.5; }
+.coach-card { display: grid; justify-items: start; gap: 7px; min-width: 240px; }
+.coach-card p { margin: 0; }
+.coach-action { min-height: 27px; padding: 0 8px; border: 1px solid #dfb99e; border-radius: 5px; background: #fbf3e8; color: #8d411f; font-size: 8px; font-weight: 700; cursor: pointer; }
+.coach-action:disabled { opacity: .5; cursor: wait; }
+.coach-status { color: #758173; font-size: 8px; }
 .empty-note, .data-footnote { margin: 18px 0 4px; color: #827a70; font-size: 10px; line-height: 1.6; }
 .data-footnote { padding-top: 12px; border-top: 1px solid #f0ebe4; color: #999084; font-size: 9px; }
 .retention-summary { display: flex; align-items: center; gap: 14px; margin-top: 28px; padding: 20px; border-radius: 7px; background: #f7f9f4; }

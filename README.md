@@ -14,7 +14,11 @@ The app includes a branded executive overview, working database-backed views acr
 - Prisma/PostgreSQL schema for source entities, peer analysis dimensions, and source-row-preserving configuration records
 - XLSX workbook and multi-file CSV validation before database writes; imports refuse to overwrite existing store or bill data
 - Deterministic conversion, items-per-bill, 30+ day customer repeat, and city/tier peer opportunity calculations
-- Same-store, city, and state salesperson benchmarks with concise coaching cards
+- Same-store, city, and state salesperson benchmarks with quantified coaching cards and optional Gemini personalization based only on aggregate metrics
+- Category-pair attachment rates (such as Sherwani with Mojari or Safa) compared with city/tier peers, with a clearly labelled opportunity estimate
+- Week-over-week store signals that distinguish a broad city/tier slowdown from stable-footfall bill declines, plus peak-day roster context
+- Aggregate re-engagement counts for prior wedding-date buyers, without exposing customer identities
+- Stock availability signals based on recent sales pace, on-hand stock, and incoming units
 - Protected daily analysis endpoint with weekly manager caps and measured recommendation follow-up
 - Explicit empty states while source data is not connected
 - Privacy-safe environment variable template and ignore rules
