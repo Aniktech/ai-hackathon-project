@@ -4,14 +4,18 @@
 
 Store Coach is designed to help retail teams understand why performance is changing and what they can do next. It focuses on three business outcomes: more bills from store footfall, bigger baskets through relevant cross-selling, and more repeat purchases from customers who return at least 30 days after their first bill.
 
-The app now includes the branded executive overview, working navigation across the planned modules, and a PostgreSQL/Prisma data model for the entities described in the participant brief. It intentionally shows no operational results until the actual hackathon workbook or CSV data is connected and validated. The brief describes the data but is not the dataset; its example values are synthetic.
+The app includes a branded executive overview, working database-backed views across the Store Coach modules, a Prisma/PostgreSQL data model, deterministic performance calculations, protected dataset validation/import, scheduled analysis, and recommendation follow-up tracking. The provided synthetic VFL dataset is kept in `data/source/` and is loaded into the configured Neon database. The participant brief is a guide; its example values are not used as findings.
 
 ## Features
 
 - Branded Store Coach workspace and responsive application layout
-- Working navigation across executive, area manager, store, salesperson, recommendation, stock, retention, weekly review, and data quality views
+- Database-backed executive, area manager, store, salesperson, stock, retention, recommendation, weekly review, and data quality views
 - Executive overview organized around the three retail performance levers
 - Prisma/PostgreSQL schema for source entities, peer analysis dimensions, and source-row-preserving configuration records
+- XLSX workbook and multi-file CSV validation before database writes; imports refuse to overwrite existing store or bill data
+- Deterministic conversion, items-per-bill, 30+ day customer repeat, and city/tier peer opportunity calculations
+- Same-store, city, and state salesperson benchmarks with concise coaching cards
+- Protected daily analysis endpoint with weekly manager caps and measured recommendation follow-up
 - Explicit empty states while source data is not connected
 - Privacy-safe environment variable template and ignore rules
 
@@ -21,11 +25,10 @@ The app now includes the branded executive overview, working navigation across t
 | --- | --- |
 | Frontend | Next.js App Router, React, TypeScript |
 | Styling | Tailwind CSS 4 with project design tokens |
-| Business logic (planned) | TypeScript and validated SQL calculations |
+| Business logic | TypeScript and PostgreSQL calculations |
 | Database and ORM | PostgreSQL and Prisma ORM 7 |
-| AI explanations (planned) | Google Gemini API, for explanations and coaching language |
-| Validation (planned) | Zod |
-| Hosting (planned) | Vercel with Neon or Supabase PostgreSQL |
+| AI explanations | Google Gemini API (optional server-side configuration) |
+| Hosting | Vercel with Neon or Supabase PostgreSQL |
 
 Business metrics and revenue impact must come from verified application logic. Gemini is reserved for explaining findings and writing concise coaching recommendations; it must not calculate KPIs or rank performance.
 
@@ -33,7 +36,7 @@ Business metrics and revenue impact must come from verified application logic. G
 
 - Node.js 20.9 or newer
 - npm
-- The actual hackathon workbook or its CSV export for data features (not included in this repository yet)
+- The synthetic VFL CSV dataset is included under `data/source/`
 
 ## Installation
 
@@ -47,18 +50,31 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The initial overview will show empty states until a validated dataset is available.
+Open [http://localhost:3000](http://localhost:3000). The overview shows empty states until a validated dataset is available.
 
 ## Environment variables
 
-The current foundation does not require environment variables. Later database and Gemini integration is expected to use:
+Set these values in `.env.local` for local development. Never put real credentials in `.env.example` or commit `.env.local`:
 
 ```text
 DATABASE_URL
 GEMINI_API_KEY
+GEMINI_MODEL
+DATA_IMPORT_TOKEN
+CRON_SECRET
 ```
 
-Copy `.env.example` to `.env.local` when those integrations are implemented, then replace the placeholders with your own values. Keep `.env.local` private; real credentials must never be committed or exposed in client-side code.
+Copy `.env.example` to `.env.local` if needed, then set `DATABASE_URL`, a Gemini key from Google AI Studio, and long random values for `DATA_IMPORT_TOKEN` and `CRON_SECRET`. Gemini is optional and must only explain findings already calculated by application logic. The import token protects the workbook write route; the cron secret protects scheduled analysis. Keep all of these values server-side.
+
+### Load the dataset once
+
+Before sharing a deployment with judges, an operator imports the real `.xlsx` workbook once from **Data Quality & Monitoring**, or runs the streaming CSV-bundle importer locally:
+
+```bash
+npm run db:import -- data/source
+```
+
+CSV filenames must match source tab names (for example, `bill_lines.csv`). Validate the workbook, review row counts, and then import. Both paths refuse to overwrite existing store/bill data. Judges only open the app; they do not upload the dataset. Their pages read the imported database while Vercel runs the protected daily analysis on schedule.
 
 Prisma commands read `DATABASE_URL` from `.env.local`. Once a development PostgreSQL database is available, generate and validate the Prisma client and schema:
 
@@ -67,13 +83,13 @@ npm run db:generate
 npm run db:validate
 ```
 
-Apply schema migrations only after a development database URL is configured:
+Apply schema migrations after a development database URL is configured:
 
 ```bash
 npm run db:migrate
 ```
 
-The configuration sheets whose column definitions are incomplete in the participant brief (`rules`, `min_display`, and `lead_times`) are preserved as JSON rows until the actual workbook confirms their exact fields. No migration has been applied because no database credentials or source workbook have been provided.
+The configuration sheets whose column definitions are incomplete in the participant brief (`rules`, `min_display`, and `lead_times`) are preserved as JSON rows. The initial schema and additive recommendation/packaging migrations are applied to the configured Neon database. The app uses only the supplied synthetic source dataset and never substitutes brief examples for imported rows.
 
 ## Deployment
 
@@ -81,7 +97,8 @@ The planned hosting target is Vercel:
 
 1. Import this GitHub repository into Vercel.
 2. Keep the Next.js framework preset and default build settings.
-3. Add production environment variables in the Vercel project settings only after the database and Gemini integrations are implemented.
-4. Deploy and confirm the production overview loads.
+3. Add server-side environment variables in the Vercel project settings (`DATABASE_URL`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `DATA_IMPORT_TOKEN`, and `CRON_SECRET`).
+4. Import and validate the actual workbook through Data Quality & Monitoring.
+5. Deploy and confirm the production overview loads.
 
-The current shell can be deployed without a database or Gemini key. Data processing, KPI calculations, recommendations, scheduled analysis, and production verification are planned follow-on phases.
+The interface can start without a Gemini key, but data views require a migrated database and the actual source workbook. The included `vercel.json` schedules analysis for 08:00 India Standard Time. Set `CRON_SECRET` in Vercel so the scheduled route is authorized. Confirm the platform's request-size and execution-time limits for the actual workbook before production import.

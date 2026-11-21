@@ -45,3 +45,4 @@ Desktop.ini
 *.log
 *.sqlite
 *.sqlite3
+/data/.dataset-import.sql

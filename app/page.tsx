@@ -1,4 +1,13 @@
 import { Icon } from "@/components/icon";
+import { getMonthlyTrend, getOverview } from "@/lib/analytics";
+import { MonthlyTrend } from "@/components/monthly-trend";
+
+export const dynamic = "force-dynamic";
+
+const numberFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 1 });
+const moneyFormat = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
+
+function formatPercent(value: number | null) { return value === null ? "—" : `${numberFormat.format(value * 100)}%`; }
 
 const levers = [
   { title: "More bills", detail: "Turn more visits into purchases", icon: "stores" as const },
@@ -6,17 +15,23 @@ const levers = [
   { title: "More repeat", detail: "Bring customers back after 30+ days", icon: "repeat" as const },
 ];
 
-export default function Home() {
+export default async function Home() {
+  const overview = await getOverview().catch(() => null);
+  const trend = overview?.available ? await getMonthlyTrend().catch(() => []) : [];
+  const totals = overview?.totals;
+  const databaseReachable = overview !== null;
+  const hasData = Boolean(overview?.available);
+  const priorities = overview?.stores.filter((store) => store.conversionOpportunity > 0).slice(0, 5) ?? [];
   return (
     <div className="page-content" id="top">
       <div className="eyebrow"><span className="eyebrow-line" /> VEDANT FASHIONS LIMITED <span className="eyebrow-separator">·</span> AI HACKATHON 2026</div>
       <div className="page-heading">
         <div>
-          <p className="greeting">EXECUTIVE OVERVIEW <span className="eyebrow-separator">·</span> DATA PREVIEW</p>
+          <p className="greeting">EXECUTIVE OVERVIEW <span className="eyebrow-separator">·</span> {hasData ? "VERIFIED DATA" : !databaseReachable ? "DATABASE UNAVAILABLE" : "DATA REQUIRED"}</p>
           <h1>Your stores, <em>in focus.</em></h1>
           <p className="page-subtitle">A clearer view of what needs attention and what your teams can do today.</p>
         </div>
-        <div className="data-state"><span className="state-dot" /><span><strong>Awaiting source workbook</strong><small>Metrics stay blank until validated data is connected</small></span></div>
+        <div className="data-state"><span className="state-dot" /><span><strong>{!databaseReachable ? "Database connection unavailable" : hasData ? `Data through ${overview?.latestDate}` : "Awaiting source workbook"}</strong><small>{hasData ? `${numberFormat.format(totals?.bills ?? 0)} bills in the latest 28 days` : !databaseReachable ? "This preview runtime cannot reach the configured database" : "Metrics stay blank until validated data is connected"}</small></span></div>
       </div>
 
       <section className="intro-card" aria-labelledby="intro-title">
@@ -40,12 +55,14 @@ export default function Home() {
           <article className="metric-card" key={lever.title}>
             <div className={`metric-icon metric-icon-${i}`}><Icon name={lever.icon} size={18} /></div>
             <span className="metric-label">{lever.title}</span>
-            <strong className="metric-value">—</strong>
-            <span className="metric-detail">{lever.detail}</span>
-            <span className="metric-footnote">No source data connected</span>
+            <strong className="metric-value">{hasData ? [formatPercent(totals?.conversion ?? null), `${numberFormat.format(totals?.itemsPerBill ?? 0)} items`, formatPercent(totals?.repeatRate ?? null)][i] : "—"}</strong>
+            <span className="metric-detail">{hasData ? ["Bills ÷ recorded footfall", "Non-packaging units per bill", `${numberFormat.format(totals?.returningCustomers ?? 0)} customers returned after 30+ days`][i] : lever.detail}</span>
+            <span className="metric-footnote">{hasData ? `${numberFormat.format(totals?.bills ?? 0)} bills in latest 28 days` : !databaseReachable ? "Database unavailable in this runtime" : "No source data connected"}</span>
           </article>
         ))}
       </section>
+
+      {hasData && <MonthlyTrend data={trend} />}
 
       <div className="lower-grid">
         <section className="panel priority-panel">
@@ -53,12 +70,12 @@ export default function Home() {
             <div><p className="section-kicker">AREA MANAGER DASHBOARD</p><h2>Priority stores</h2></div>
             <span className="limit-badge">UP TO 5 / WEEK</span>
           </div>
-          <div className="empty-state">
+          {priorities.length ? <div className="priority-list">{priorities.map((store) => <div className="priority-row" key={store.storeId}><span><strong>{store.storeId}</strong><small>{store.city} · {store.areaManager}</small></span><b>{moneyFormat.format(store.conversionOpportunity)}</b></div>)}</div> : <div className="empty-state">
             <span className="empty-icon"><Icon name="stores" size={20} /></span>
             <strong>Your weekly priorities will appear here</strong>
             <p>Issues will be ranked by rupees at stake and compared with relevant store peers.</p>
             <span className="empty-meta"><span className="tiny-dot" /> Waiting for validated store data</span>
-          </div>
+          </div>}
         </section>
         <section className="panel action-panel">
           <div className="panel-heading">
@@ -78,9 +95,9 @@ export default function Home() {
         <div>
           <p className="section-kicker">BUILT AROUND YOUR DATA</p>
           <h2>Start with a trustworthy picture.</h2>
-          <p>The participant brief describes the workbook format and business rules. Connect the actual workbook or CSV dataset to calculate store and salesperson performance. Example values in the brief are synthetic and are not used as findings.</p>
+          <p>{hasData ? "Metrics are calculated from the imported source dataset. Example values in the brief are synthetic and are not used as findings." : !databaseReachable ? "The dataset has been loaded, but this preview runtime cannot reach the configured database. The deployed server needs database network access to display the live metrics." : "Connect the actual workbook or CSV dataset to calculate store and salesperson performance. Example values in the brief are synthetic and are not used as findings."}</p>
         </div>
-        <span className="readiness-tag">DATA REQUIRED</span>
+        <span className="readiness-tag">{hasData ? "DATA VERIFIED" : !databaseReachable ? "DATABASE UNAVAILABLE" : "DATA REQUIRED"}</span>
       </section>
       <footer className="page-footer"><span>STORE COACH <i>·</i> RETAIL PERFORMANCE INTELLIGENCE</span><span>Built for thoughtful growth <b>✳</b></span></footer>
     </div>

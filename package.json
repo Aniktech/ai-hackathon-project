@@ -11,12 +11,16 @@
     "db:generate": "prisma generate",
     "db:format": "prisma format",
     "db:validate": "prisma validate",
-    "db:migrate": "prisma migrate dev"
+    "db:migrate": "prisma migrate dev",
+    "db:import": "tsx scripts/import-dataset-sql.ts",
+    "db:import:adapter": "tsx scripts/import-dataset.ts"
   },
   "dependencies": {
+    "@fast-csv/parse": "^5.0.8",
     "@prisma/adapter-pg": "^7.0.0",
     "@prisma/client": "^7.0.0",
     "dotenv": "^17.0.0",
+    "exceljs": "^4.4.0",
     "next": "^16.0.0",
     "pg": "^8.0.0",
     "react": "^19.2.0",
@@ -32,6 +36,7 @@
     "eslint-config-next": "^16.0.0",
     "prisma": "^7.0.0",
     "tailwindcss": "^4.0.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.0"
   },
   "overrides": {
